@@ -44,19 +44,38 @@ except (FileNotFoundError, ValueError) as e:
 # --- State untuk ConversationHandler ---
 SELECTING_DOMAIN, GENERATING_EMAIL = range(2)
 
-# --- FUNGSI GENERATOR ---
+# --- FUNGSI GENERATOR (BAGIAN YANG DIUBAH) ---
 def generate_unique_email(domain):
-    """Fungsi utama untuk menghasilkan email unik dengan domain yang dipilih."""
+    """
+    Fungsi utama untuk menghasilkan email unik dengan panjang 10-15 karakter
+    dan HANYA menggunakan huruf.
+    """
     while True:
-        num_names = random.randint(4, 6)
-        selected_names = random.sample(NAMES_LIST, min(num_names, len(NAMES_LIST)))
+        # Tentukan target panjang total secara acak antara 10 dan 15 karakter
+        target_length = random.randint(10, 15)
+
+        # 1. Mulai dengan 1 atau 2 nama acak sebagai dasar
+        num_starting_names = random.randint(1, 2)
+        base_names = random.sample(NAMES_LIST, min(num_starting_names, len(NAMES_LIST)))
+        base_name_str = "".join(base_names)
+
+        # 2. Potong nama dasar jika sudah lebih panjang dari target
+        if len(base_name_str) > target_length:
+            base_name_str = base_name_str[:target_length]
+
+        # 3. Hitung berapa banyak karakter acak yang perlu ditambahkan
+        remaining_length = target_length - len(base_name_str)
         
-        num_random_chars = random.randint(4, 8)
-        random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=num_random_chars))
-        
-        generated_name = "".join(selected_names) + random_suffix
+        random_part = ''
+        if remaining_length > 0:
+            # Menggunakan string.ascii_lowercase SAJA (tanpa string.digits)
+            random_part = ''.join(random.choices(string.ascii_lowercase, k=remaining_length))
+
+        # 4. Gabungkan semuanya
+        generated_name = base_name_str + random_part
         full_email = generated_name + domain
-        
+
+        # 5. Cek ke database untuk memastikan keunikan
         if not db.is_email_generated(full_email):
             db.add_generated_email(full_email)
             return full_email
