@@ -47,32 +47,23 @@ SELECTING_DOMAIN, GENERATING_EMAIL = range(2)
 # --- FUNGSI GENERATOR (BAGIAN YANG DIUBAH) ---
 def generate_unique_email(domain):
     """
-    Fungsi utama untuk menghasilkan email unik dengan panjang 10-15 karakter
-    dan HANYA menggunakan huruf.
+    Fungsi utama untuk menghasilkan email unik dengan format [nama][3_angka_acak].
     """
     while True:
-        # Tentukan target panjang total secara acak antara 10 dan 15 karakter
-        target_length = random.randint(10, 15)
-
         # 1. Mulai dengan 1 atau 2 nama acak sebagai dasar
         num_starting_names = random.randint(1, 2)
         base_names = random.sample(NAMES_LIST, min(num_starting_names, len(NAMES_LIST)))
-        base_name_str = "".join(base_names)
+        base_name_str = "".join(base_names).lower()
 
-        # 2. Potong nama dasar jika sudah lebih panjang dari target
-        if len(base_name_str) > target_length:
-            base_name_str = base_name_str[:target_length]
+        # 2. Batasi panjang nama dasar agar email tidak terlalu panjang (misal: maks 12 karakter)
+        if len(base_name_str) > 12:
+            base_name_str = base_name_str[:12]
 
-        # 3. Hitung berapa banyak karakter acak yang perlu ditambahkan
-        remaining_length = target_length - len(base_name_str)
-        
-        random_part = ''
-        if remaining_length > 0:
-            # Menggunakan string.ascii_lowercase SAJA (tanpa string.digits)
-            random_part = ''.join(random.choices(string.ascii_lowercase, k=remaining_length))
+        # 3. Hasilkan 3 angka acak (contoh: 5 menjadi '005', 99 menjadi '099')
+        three_random_digits = str(random.randint(0, 999)).zfill(3)
 
         # 4. Gabungkan semuanya
-        generated_name = base_name_str + random_part
+        generated_name = base_name_str + three_random_digits
         full_email = generated_name + domain
 
         # 5. Cek ke database untuk memastikan keunikan
