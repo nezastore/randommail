@@ -3,6 +3,7 @@ import random
 import string
 import database as db
 import fake_data_generator as fake
+from fake_data_generator import NAMES_LIST # Ditambahkan
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -29,20 +30,32 @@ logger = logging.getLogger(__name__)
 GENERATING = 0
 
 # --- FUNGSI GENERATOR ---
-def generate_unique_email(base_name):
+def generate_unique_email():
     """
-    Menghasilkan email unik berdasarkan nama dasar yang diberikan.
-    Format: [base_name][3_angka_acak]@nezastore.com
+    Menghasilkan email unik dengan format huruf saja, maksimal 10 karakter.
     """
     while True:
-        # Hasilkan 3 angka acak
-        three_random_digits = str(random.randint(0, 999)).zfill(3)
+        # 1. Pilih 1 atau 2 nama acak sebagai dasar
+        num_names = random.randint(1, 2)
+        # Pastikan tidak mengambil sample lebih banyak dari item yang ada
+        sample_size = min(num_names, len(NAMES_LIST))
+        base_names = random.sample(NAMES_LIST, sample_size)
         
-        # Gabungkan nama dasar dengan angka
-        generated_name = base_name + three_random_digits
-        full_email = generated_name.lower().replace(" ", "") + EMAIL_DOMAIN
+        # 2. Gabungkan, bersihkan (lowercase, tanpa spasi)
+        local_part = "".join(base_names).lower().replace(" ", "")
 
-        # Cek keunikan di database
+        # 3. Batasi panjangnya maksimal 10 karakter
+        if len(local_part) > 10:
+            local_part = local_part[:10]
+        
+        # Jika nama yang ada sangat pendek, pastikan local_part tidak kosong
+        if not local_part and base_names:
+            local_part = base_names[0].lower()[:10]
+
+        # Gabungkan dengan domain
+        full_email = local_part + EMAIL_DOMAIN
+
+        # Cek keunikan di database, jika unik, simpan dan kembalikan
         if not db.is_email_generated(full_email):
             db.add_generated_email(full_email)
             return full_email
@@ -89,8 +102,8 @@ async def generate_data_handler(update: Update, context: ContextTypes.DEFAULT_TY
     # 1. Generate semua data palsu
     fake_data = fake.generate_all_data()
     
-    # 2. Generate email unik berdasarkan username
-    new_email = generate_unique_email(fake_data['username'])
+    # 2. Generate email unik (panggilan fungsi diubah)
+    new_email = generate_unique_email()
 
     # 3. Format teks hasil
     result_text = (
@@ -153,3 +166,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
