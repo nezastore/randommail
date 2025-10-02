@@ -2,6 +2,7 @@ import logging
 import random
 import string
 import database as db
+import fake_data_generator as fake
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -15,14 +16,7 @@ from telegram.ext import (
 # --- KONFIGURASI ---
 # Ganti dengan token bot Anda
 BOT_TOKEN = "8031557668:AAGeXCvMv4724G6WNboGer0vlT4HVqXIynM"
-
-# Daftar domain email yang bisa dipilih
-EMAIL_DOMAINS = {
-    'gmail': '@gmail.com',
-    'outlook': '@outlook.com',
-    'hotmail': '@hotmail.com',
-    'neza': '@nezastore.com'
-}
+EMAIL_DOMAIN = "@nezastore.com"
 
 # Setup logging
 logging.basicConfig(
@@ -31,138 +25,109 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Memuat daftar nama dari file
-try:
-    with open('names.txt', 'r') as f:
-        NAMES_LIST = [line.strip() for line in f if line.strip()]
-    if not NAMES_LIST:
-        raise ValueError("File names.txt kosong atau tidak ditemukan.")
-except (FileNotFoundError, ValueError) as e:
-    logger.error(f"Error: {e}. Pastikan file 'names.txt' ada dan berisi nama.")
-    NAMES_LIST = ["user", "guest", "test", "demo"]
-
 # --- State untuk ConversationHandler ---
-SELECTING_DOMAIN, GENERATING_EMAIL = range(2)
+GENERATING = 0
 
-# --- FUNGSI GENERATOR (BAGIAN YANG DIUBAH) ---
-def generate_unique_email(domain):
+# --- FUNGSI GENERATOR ---
+def generate_unique_email(base_name):
     """
-    Fungsi utama untuk menghasilkan email unik dengan format [nama][3_angka_acak].
+    Menghasilkan email unik berdasarkan nama dasar yang diberikan.
+    Format: [base_name][3_angka_acak]@nezastore.com
     """
     while True:
-        # 1. Mulai dengan 1 atau 2 nama acak sebagai dasar
-        num_starting_names = random.randint(1, 2)
-        base_names = random.sample(NAMES_LIST, min(num_starting_names, len(NAMES_LIST)))
-        base_name_str = "".join(base_names).lower()
-
-        # 2. Batasi panjang nama dasar agar email tidak terlalu panjang (misal: maks 12 karakter)
-        if len(base_name_str) > 12:
-            base_name_str = base_name_str[:12]
-
-        # 3. Hasilkan 3 angka acak (contoh: 5 menjadi '005', 99 menjadi '099')
+        # Hasilkan 3 angka acak
         three_random_digits = str(random.randint(0, 999)).zfill(3)
+        
+        # Gabungkan nama dasar dengan angka
+        generated_name = base_name + three_random_digits
+        full_email = generated_name.lower().replace(" ", "") + EMAIL_DOMAIN
 
-        # 4. Gabungkan semuanya
-        generated_name = base_name_str + three_random_digits
-        full_email = generated_name + domain
-
-        # 5. Cek ke database untuk memastikan keunikan
+        # Cek keunikan di database
         if not db.is_email_generated(full_email):
             db.add_generated_email(full_email)
             return full_email
 
 # --- FUNGSI HANDLER BOT ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Memulai bot dan menampilkan pilihan domain."""
+    """Memulai bot dan menampilkan tombol generate."""
     user = update.effective_user
     
     welcome_text = (
         f"👋 *Selamat Datang, {user.first_name}!* \n\n"
-        "Saya adalah Bot Generator Email Profesional. Silakan pilih domain email yang Anda inginkan dari daftar di bawah ini."
+        "Saya adalah Bot Generator Data Profesional.\n\n"
+        "Klik tombol di bawah untuk membuat satu set data pribadi lengkap secara acak."
     )
     
     keyboard = [
-        [InlineKeyboardButton("Gmail", callback_data='domain_gmail'), InlineKeyboardButton("Outlook", callback_data='domain_outlook')],
-        [InlineKeyboardButton("Hotmail", callback_data='domain_hotmail'), InlineKeyboardButton("Nezastore", callback_data='domain_neza')]
+        [InlineKeyboardButton("🚀 Buat Data Lengkap", callback_data='generate_data')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Jika dipanggil via /start, kirim pesan baru. Jika dari state lain, edit pesan.
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text=welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.callback_query.edit_message_text(
+            text=welcome_text, reply_markup=reply_markup, parse_mode='Markdown'
+        )
     else:
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(
+            welcome_text, reply_markup=reply_markup, parse_mode='Markdown'
+        )
 
-    return SELECTING_DOMAIN
+    return GENERATING
 
-async def select_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menangani pemilihan domain dan menampilkan tombol generate."""
+async def generate_data_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Menangani pembuatan data palsu dan email."""
     query = update.callback_query
     await query.answer()
-
-    # Ekstrak pilihan domain dari callback_data (cth: 'domain_gmail' -> 'gmail')
-    domain_key = query.data.split('_')[1]
-    selected_domain = EMAIL_DOMAINS[domain_key]
-    
-    # Simpan domain yang dipilih di context user data untuk digunakan nanti
-    context.user_data['selected_domain'] = selected_domain
-
-    text = (
-        f"✅ Domain dipilih: *{selected_domain}*\n\n"
-        "Sekarang Anda siap untuk membuat email. Klik tombol di bawah ini untuk memulai prosesnya."
-    )
-
-    keyboard = [
-        [InlineKeyboardButton("🚀 Generate Email", callback_data='generate_email')],
-        [InlineKeyboardButton("🔙 Kembali (Pilih Domain Lain)", callback_data='back_to_start')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode='Markdown')
-    
-    return GENERATING_EMAIL
-
-async def generate_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menangani klik tombol generate email."""
-    query = update.callback_query
-    await query.answer()
-
-    selected_domain = context.user_data.get('selected_domain')
-    if not selected_domain:
-        # Jika karena suatu hal domain tidak tersimpan, kembalikan ke awal
-        await query.edit_message_text(text="Terjadi kesalahan. Silakan mulai lagi.")
-        return await start(update, context)
 
     # Tampilkan pesan loading
-    await query.edit_message_text(text=f"⏳ *Memproses...*\n\n_Mencari kombinasi unik dengan domain {selected_domain}..._", parse_mode='Markdown')
+    await query.edit_message_text(
+        text="⏳ *Memproses...*\n\n_Mencari kombinasi data unik untuk Anda..._", 
+        parse_mode='Markdown'
+    )
 
-    # Generate email baru
-    new_email = generate_unique_email(selected_domain)
+    # 1. Generate semua data palsu
+    fake_data = fake.generate_all_data()
+    
+    # 2. Generate email unik berdasarkan username
+    new_email = generate_unique_email(fake_data['username'])
 
-    # Tampilkan hasil dengan format yang mudah disalin
+    # 3. Format teks hasil
     result_text = (
-        f"✅ *Berhasil! Email Unik Anda Siap Digunakan:*\n\n"
-        f"Berikut adalah email yang telah dibuat:\n\n"
-        f"`{new_email}`\n\n"
-        f"*(Klik pada alamat email di atas untuk menyalinnya secara otomatis)*\n"
+        f"✅ *Data Berhasil Dibuat:*\n\n"
+        f"*Nama Depan*:\n`{fake_data['nama_depan']}`\n\n"
+        f"*Nama Belakang*:\n`{fake_data['nama_belakang']}`\n\n"
+        f"*Nama Lengkap*:\n`{fake_data['nama_lengkap']}`\n\n"
+        f"*Username*:\n`{fake_data['username']}`\n\n"
+        f"*NIK*:\n`{fake_data['nik']}`\n\n"
+        f"*Tanggal Lahir*:\n`{fake_data['tanggal_lahir']}`\n\n"
+        f"*Tempat Lahir*:\n`{fake_data['tempat_lahir']}`\n\n"
+        f"*Alamat*:\n`{fake_data['alamat']}`\n\n"
+        f"*Kecamatan*:\n`{fake_data['kecamatan']}`\n\n"
+        f"*Kota*:\n`{fake_data['kota']}`\n\n"
+        f"*Provinsi*:\n`{fake_data['provinsi']}`\n\n"
+        f"*Kode Pos*:\n`{fake_data['kode_pos']}`\n\n"
+        f"*Telepon*:\n`{fake_data['telepon']}`\n\n"
+        f"--- \n\n"
+        f"*Email*:\n`{new_email}`\n\n"
+        f"_(Klik pada teks di atas untuk menyalinnya)_"
     )
 
     keyboard = [
-        [InlineKeyboardButton("🔄 Generate Lagi", callback_data='generate_email')],
-        [InlineKeyboardButton("🔙 Kembali (Pilih Domain Lain)", callback_data='back_to_start')]
+        [InlineKeyboardButton("🔄 Buat Lagi", callback_data='generate_data')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.edit_message_text(text=result_text, reply_markup=reply_markup, parse_mode='Markdown')
+    await query.edit_message_text(
+        text=result_text, reply_markup=reply_markup, parse_mode='Markdown'
+    )
 
-    return GENERATING_EMAIL
+    return GENERATING
 
-async def end_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Mengakhiri percakapan (opsional, untuk perintah /cancel)."""
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Membatalkan percakapan."""
     await update.message.reply_text("Proses dibatalkan. Ketik /start untuk memulai lagi.")
     return ConversationHandler.END
-
 
 def main() -> None:
     """Fungsi utama untuk menjalankan bot."""
@@ -171,19 +136,14 @@ def main() -> None:
 
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Menggunakan ConversationHandler untuk alur yang lebih kompleks
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            SELECTING_DOMAIN: [
-                CallbackQueryHandler(select_domain, pattern='^domain_')
-            ],
-            GENERATING_EMAIL: [
-                CallbackQueryHandler(generate_button_click, pattern='^generate_email$'),
-                CallbackQueryHandler(start, pattern='^back_to_start$') # Kembali ke fungsi start
+            GENERATING: [
+                CallbackQueryHandler(generate_data_handler, pattern='^generate_data$')
             ],
         },
-        fallbacks=[CommandHandler("start", start)], # Jika pengguna mengirim /start di tengah proses
+        fallbacks=[CommandHandler("cancel", cancel), CommandHandler("start", start)],
     )
 
     application.add_handler(conv_handler)
